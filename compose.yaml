@@ -1,0 +1,35 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    environment:
+      DISTBUILD_DATABASE_URL: "sqlite:////data/distbuild.db"
+      DISTBUILD_WORKER_SHARED_TOKEN: "${DISTBUILD_WORKER_SHARED_TOKEN}"
+    volumes:
+      - distbuild_data:/data
+    ports:
+      - "8080:8080"
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    environment:
+      DISTBUILD_WORKER_SHARED_TOKEN: "${DISTBUILD_WORKER_SHARED_TOKEN}"
+    depends_on:
+      - api
+    # Needed to launch job containers on the host.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Reduce container privileges; jobs themselves run in separate containers with no network.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+
+volumes:
+  distbuild_data:

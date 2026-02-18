@@ -1,0 +1,24 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "distbuild"
+version = "0.1.0"
+description = "Minimal distributed build system (API server + workers)"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "sqlmodel>=0.0.16",
+  "httpx>=0.26",
+]
+
+[project.scripts]
+distbuild-admin = "distbuild.admin:main"
+distbuild-worker = "distbuild.worker:main"
+distbuild = "distbuild.cli:main"
+distbuild-api = "distbuild.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["distbuild"]

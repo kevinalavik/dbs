@@ -1,0 +1,18 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# docker CLI only (daemon comes from host via /var/run/docker.sock)
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends docker.io ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml /app/pyproject.toml
+COPY distbuild /app/distbuild
+
+RUN pip install --no-cache-dir -e .
+
+CMD ["/bin/sh", "-lc", "distbuild-worker --server http://api:8080 --worker-token \"$DISTBUILD_WORKER_SHARED_TOKEN\" --worker-id \"${DISTBUILD_WORKER_ID:-worker-1}\""]
