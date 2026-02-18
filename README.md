@@ -2,7 +2,8 @@
 
 Educational distributed job runner (API server + workers) with per-consumer API keys, quotas, sandboxed execution, and per-job logs.
 
-This project was generated and iterated on with AI assistance as an experiment.
+This repository was created by a human using OpenCode (https://opencode.ai/) with the free model GPT-5.2 from OpenAI.
+No code in this repo was written directly by a human; it was authored via OpenCode + the model.
 
 DO NOT deploy this to production.
 
