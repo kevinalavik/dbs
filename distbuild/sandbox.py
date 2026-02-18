@@ -6,8 +6,11 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import uuid
 from dataclasses import dataclass
 from typing import Callable, Optional
+
+from distbuild import config
 
 
 @dataclass(frozen=True)
@@ -116,23 +119,63 @@ def run_docker(
         on_log("system", f"docker preflight failed: {e!r}\n")
         return 126
 
-    # Hardening defaults:
-    # - No network access
-    # - No additional Linux capabilities
-    # - No new privileges (blocks setuid escalation)
-    # - Read-only root filesystem; writable tmpfs for /tmp and /work
-    # - Run as "nobody" inside container
+    # Docker sandbox defaults (tunable via DISTBUILD_DOCKER_* env vars):
+    # - Per-job network by default (internet access, not shared with other jobs)
+    # - Drop all Linux capabilities
+    # - no-new-privileges (blocks setuid escalation)
+    # - Optional read-only rootfs
+    # - Default user is root (build-style jobs often need it)
     cpu = str(max(0.1, min(4.0, limits.cpu_seconds / 300)))
+
+    def _parse_caps(s: str) -> list[str]:
+        out: list[str] = []
+        for part in (s or "").split(","):
+            cap = part.strip().upper()
+            if not cap:
+                continue
+            if cap.startswith("CAP_"):
+                cap = cap[len("CAP_") :]
+            out.append(cap)
+        # Keep deterministic ordering.
+        return sorted(set(out))
+
+    docker_user = (config.DOCKER_RUN_AS or "").strip()
+    docker_user_l = docker_user.lower()
+    if docker_user_l == "root":
+        docker_user = "0:0"
+    elif docker_user_l == "nobody":
+        docker_user = "65534:65534"
+
+    net_mode = (config.DOCKER_NETWORK_MODE or "job").strip() or "job"
+    net_name = net_mode
+    created_network = False
+    if net_mode == "job":
+        net_name = f"distbuild-job-{uuid.uuid4().hex[:12]}"
+        try:
+            subprocess.run(
+                ["docker", "network", "create", "--driver", "bridge", net_name],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=10,
+                check=True,
+            )
+            created_network = True
+        except Exception as e:
+            on_log("system", f"failed to create job network; falling back to bridge: {e!r}\n")
+            net_name = "bridge"
+    elif net_mode in ("bridge", "none"):
+        net_name = net_mode
+
     docker_cmd = [
         "docker",
         "run",
         "-i",
         "--rm",
         "--network",
-        "none",
+        net_name,
         "--ipc",
         "none",
-        "--read-only",
         "--security-opt",
         "no-new-privileges",
         "--cap-drop",
@@ -147,28 +190,44 @@ def run_docker(
         "nofile=256:256",
         "--tmpfs",
         "/tmp:rw,nosuid,nodev,size=256m",
-        "--tmpfs",
-        "/work:rw,nosuid,nodev,size=1024m",
         "--workdir",
         "/work",
-        "--user",
-        "65534:65534",
+    ]
+
+    for cap in _parse_caps(getattr(config, "DOCKER_CAP_ADD", "")):
+        docker_cmd += ["--cap-add", cap]
+
+    if config.DOCKER_READ_ONLY_ROOTFS:
+        docker_cmd += ["--read-only", "--tmpfs", "/work:rw,nosuid,nodev,size=1024m"]
+
+    if docker_user:
+        docker_cmd += ["--user", docker_user]
+
+    docker_cmd += [
         image,
         "/bin/sh",
         "-s",
     ]
 
     # Provide the user command over stdin to avoid bind-mounting a host directory.
-    script = "set -eu\n" + command + "\n"
+    script = "set -eu\nmkdir -p /work\n" + command + "\n"
 
-    p = subprocess.Popen(
-        docker_cmd,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        bufsize=1,
-    )
+    try:
+        p = subprocess.Popen(
+            docker_cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+    except Exception:
+        if created_network:
+            try:
+                subprocess.run(["docker", "network", "rm", net_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception:
+                pass
+        raise
 
     try:
         assert p.stdin is not None
@@ -209,6 +268,12 @@ def run_docker(
         t2.join(timeout=1.0)
     except Exception:
         pass
+
+    if created_network:
+        try:
+            subprocess.run(["docker", "network", "rm", net_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception as e:
+            on_log("system", f"warning: failed to remove job network {net_name}: {e!r}\n")
     return rc
 
 
@@ -225,7 +290,7 @@ def run_sandbox(
         return run_docker(
             command,
             timeout_seconds=timeout_seconds,
-            image=image or "python:3.12-slim",
+            image=image or config.DOCKER_DEFAULT_IMAGE,
             limits=limits,
             on_log=on_log,
         )

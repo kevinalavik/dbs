@@ -17,7 +17,7 @@ DO NOT deploy this to production.
 - Per-consumer API keys (hashed at rest) + enable/disable.
 - Per-consumer quotas: max concurrent jobs + max jobs/day.
 - Workers claim jobs and execute in a sandbox:
-  - `docker` sandbox (preferred): no network, dropped capabilities, read-only rootfs, tmpfs workdir.
+  - `docker` sandbox (preferred): per-job isolated network (with internet by default), dropped capabilities, no-new-privileges, resource limits; runs as root by default.
   - `local` sandbox (dev only): best-effort rlimits; not strong isolation.
 - Job logs stored and retrievable by the submitting consumer.
 - Client CLI (`distbuild`) with config profiles.
@@ -119,6 +119,26 @@ log_level = "info"
 ```bash
 distbuild-worker --config-file worker.toml
 distbuild-worker --start --config-file worker.toml
+```
+
+Docker sandbox settings (env vars, evaluated by workers):
+
+```bash
+# Default job image (if the submitted job doesn't specify one)
+export DISTBUILD_DOCKER_DEFAULT_IMAGE='debian:bookworm-slim'
+
+# Networking: job|bridge|none|<existing-network-name>
+export DISTBUILD_DOCKER_NETWORK_MODE='job'
+
+# Container user: root|nobody|UID:GID
+export DISTBUILD_DOCKER_RUN_AS='root'
+
+# Capabilities to add back after dropping ALL (comma-separated).
+# Default is "build-friendly" so apt/ping work.
+export DISTBUILD_DOCKER_CAP_ADD='CHOWN,DAC_OVERRIDE,FOWNER,SETUID,SETGID,NET_RAW'
+
+# Optional hardening (may break package installs)
+export DISTBUILD_DOCKER_READ_ONLY_ROOTFS='false'
 ```
 
 ## distbuild CLI

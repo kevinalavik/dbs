@@ -46,3 +46,44 @@ ALLOW_LOCAL_SANDBOX = _env_bool("DISTBUILD_ALLOW_LOCAL_SANDBOX", True)
 
 # Maximum characters per log chunk stored in DB.
 MAX_LOG_CHARS = int(_env("DISTBUILD_MAX_LOG_CHARS", "4000"))
+
+
+# Docker sandbox defaults. These aim to support "build" style jobs where the
+# container can fetch dependencies from the internet and run as root, while
+# still applying basic resource limits in the worker.
+#
+# Notes:
+# - Network isolation here means "not shared with other jobs" by default.
+#   It is not a firewall against the Docker host.
+
+
+DOCKER_DEFAULT_IMAGE = _env("DISTBUILD_DOCKER_DEFAULT_IMAGE", "debian:stable")
+
+
+# Network mode for job containers:
+# - "job": create a fresh user-defined bridge network per job (default)
+# - "bridge": use Docker's default bridge
+# - "none": disable networking
+# - any other string: treated as an existing Docker network name
+DOCKER_NETWORK_MODE = _env("DISTBUILD_DOCKER_NETWORK_MODE", "job")
+
+
+# User for job containers:
+# - "root" (default)
+# - "nobody"
+# - "UID:GID" (e.g. "1000:1000")
+DOCKER_RUN_AS = _env("DISTBUILD_DOCKER_RUN_AS", "root")
+
+
+# Capabilities to add back after dropping ALL.
+# Comma-separated, e.g. "CHOWN,SETUID,SETGID".
+# Default is "build-friendly" so common tools like apt and ping work.
+DOCKER_CAP_ADD = _env(
+    "DISTBUILD_DOCKER_CAP_ADD",
+    "CHOWN,DAC_OVERRIDE,FOWNER,SETUID,SETGID,NET_RAW",
+)
+
+
+# If true, run containers with a read-only root filesystem.
+# This is more restrictive and may break package installs.
+DOCKER_READ_ONLY_ROOTFS = _env_bool("DISTBUILD_DOCKER_READ_ONLY_ROOTFS", False)
